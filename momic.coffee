@@ -18,6 +18,9 @@ function clone(obj) {
 }
 `
 
+capitalize = (str) ->
+  str[0].toUpperCase() + str[1...].toLowerCase()
+
 dequal = (left, right) ->
   isLeftPrimitive  = (typeof left) in ['string', 'number', 'boolean', 'undefined']
   isRightPrimitive = (typeof right) in ['string', 'number', 'boolean', 'undefined']
@@ -34,12 +37,21 @@ dequal = (left, right) ->
   (results.filter (item) -> item).length is results.length
 
 Momic = {}
+class Momic.Storage
+class Momic.Localforage extends Momic.Storage
+  constructor: ->
+  load: (key)-> defer (done) ->
+    localforage.getItem(key).then (content) -> done(content)
+  save: (key, value)-> defer (done) ->
+    localforage.setItem(key, value).then -> done(value)
+
 class Momic.Collection
   @dequal = dequal
-  constructor: (@key, {@schema, @hasInstance, @hasPersistence, @endpoint, @autoSave}) ->
+  constructor: (@key, {@schema, @storage, @hasInstance, @hasPersistence, @endpoint, @autoSave}) ->
     @autoSave ?= true
     @hasPersistence ?= true
     @hasInstance ?= true
+    @storage = new Momic[capitalize(@storage)] unless @storage instanceof Momic.Storage
 
     unless @hasInstance or @hasPersistence
       throw new Error('hasInstance or hasPersistence must be true')
@@ -50,7 +62,7 @@ class Momic.Collection
   count: => @_count
 
   load: => defer (done) =>
-    localforage.getItem(@key).then (content) => done(content)
+    @storage.load(@key).then done
 
   updateInstanceIfNeeded: (instance) =>
     @_instance = instance if @hasInstance
@@ -66,7 +78,7 @@ class Momic.Collection
   save: (content) => defer (done) =>
     throw "`#{@key}` collection doesn't have storage" unless @hasPersistence
     tosave = content ? @_instance
-    localforage.setItem(@key, tosave).then =>
+    @storage.save(@key, tosave).then =>
       @updateInstanceIfNeeded(tosave)
       @_saved = true
       done()
@@ -114,7 +126,7 @@ class Momic.Collection
         done()
 
   drop: => defer (done) =>
-    localforage.setItem(@key, '[]').then => done()
+    @storage.save(@key, '[]').then => done()
 
   findOne: (func_or_obj) => defer (done) =>
     @find(func_or_obj).then ([first]) => done(first)
@@ -145,7 +157,7 @@ class Momic.Collection
           @save(content).then => done()
 
   init: => defer (done) =>
-    localforage.getItem @key, (content) =>
+    @storage.load(@key).then (content) =>
       if content?
         try
           content = JSON.parse(content)
